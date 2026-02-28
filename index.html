@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WeatherApp — Smart Weather</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <!-- Animated background particles -->
+  <div id="particles" class="particles"></div>
+
+  <div class="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="header__brand">
+        <svg class="header__logo" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17.5 19a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9z"/>
+          <path d="M17.5 9.5V5M17.5 19v4.5M22 14.5h4.5M8 14.5h4.5M20.6 11.4l3.2-3.2M11.2 20.8l3.2-3.2M20.6 17.6l3.2 3.2M11.2 8.2l3.2 3.2"/>
+        </svg>
+        <h1 class="header__title">WeatherApp</h1>
+      </div>
+      <div class="header__actions">
+        <button id="geoBtn" class="btn btn--icon" title="Use my location" aria-label="Use my location">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
+          </svg>
+        </button>
+        <button id="unitToggle" class="btn btn--pill" title="Toggle units">°C</button>
+        <button id="themeToggle" class="btn btn--icon" title="Toggle theme" aria-label="Toggle theme">
+          <svg class="icon-sun" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          </svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Search -->
+    <div class="search">
+      <div class="search__wrapper">
+        <svg class="search__icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+        </svg>
+        <input id="searchInput" class="search__input" type="text" placeholder="Search any city or place..." autocomplete="off" />
+        <button id="searchBtn" class="btn btn--primary">Search</button>
+      </div>
+      <div id="suggestions" class="search__suggestions hidden"></div>
+      <div id="recentSearches" class="search__recent hidden">
+        <span class="search__recent-label">Recent:</span>
+        <div id="recentList" class="search__recent-list"></div>
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <div id="loader" class="loader hidden">
+      <div class="loader__spinner"></div>
+      <p class="loader__text">Fetching weather data...</p>
+    </div>
+
+    <!-- Error -->
+    <div id="error" class="error-card hidden">
+      <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>
+      </svg>
+      <p id="errorMsg" class="error-card__msg"></p>
+      <button id="retryBtn" class="btn btn--primary">Retry</button>
+    </div>
+
+    <!-- Main Weather Content -->
+    <main id="weatherContent" class="weather hidden">
+
+      <!-- Current Weather Card -->
+      <section class="current-weather">
+        <div class="current-weather__main">
+          <div class="current-weather__info">
+            <div class="current-weather__location">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 10c0 6-9 13-9 13S3 16 3 10a9 9 0 1 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+              </svg>
+              <h2 id="cityName" class="current-weather__city"></h2>
+            </div>
+            <p id="dateTime" class="current-weather__datetime"></p>
+            <p id="weatherDesc" class="current-weather__description"></p>
+          </div>
+          <div class="current-weather__temp-group">
+            <div id="weatherIconLarge" class="current-weather__icon-large"></div>
+            <div class="current-weather__temp-info">
+              <span id="currentTemp" class="current-weather__temp"></span>
+              <div class="current-weather__highlow">
+                <span id="highTemp" class="current-weather__high"></span>
+                <span id="lowTemp" class="current-weather__low"></span>
+              </div>
+              <span id="feelsLike" class="current-weather__feels"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Alert Banner -->
+        <div id="alertBanner" class="alert-banner hidden">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/>
+          </svg>
+          <span id="alertText"></span>
+        </div>
+      </section>
+
+      <!-- Weather Details Grid -->
+      <section class="details-grid">
+        <div class="detail-card">
+          <div class="detail-card__header">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v6l3-3M12 8l-3-3"/><path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4 14.9"/></svg>
+            <span>Wind</span>
+          </div>
+          <p id="windSpeed" class="detail-card__value"></p>
+          <p id="windDir" class="detail-card__sub"></p>
+        </div>
+        <div class="detail-card">
+          <div class="detail-card__header">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+            <span>Humidity</span>
+          </div>
+          <p id="humidity" class="detail-card__value"></p>
+          <div id="humidityBar" class="detail-card__bar"><div class="detail-card__bar-fill"></div></div>
+        </div>
+        <div class="detail-card">
+          <div class="detail-card__header">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/><path d="M12 6v6l4 2"/></svg>
+            <span>Pressure</span>
+          </div>
+          <p id="pressure" class="detail-card__value"></p>
+          <p id="pressureTrend" class="detail-card__sub"></p>
+        </div>
+        <div class="detail-card">
+          <div class="detail-card__header">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+            <span>Visibility</span>
+          </div>
+          <p id="visibility" class="detail-card__value"></p>
+          <p id="visibilityDesc" class="detail-card__sub"></p>
+        </div>
+        <div class="detail-card">
+          <div class="detail-card__header">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2"/></svg>
+            <span>UV Index</span>
+          </div>
+          <p id="uvIndex" class="detail-card__value"></p>
+          <p id="uvDesc" class="detail-card__sub"></p>
+        </div>
+        <div class="detail-card">
+          <div class="detail-card__header">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 18a5 5 0 0 0-10 0"/><path d="M12 9V2"/><path d="M4.22 10.22l1.42 1.42M18.36 10.22l-1.42 1.42"/></svg>
+            <span>Sunrise / Sunset</span>
+          </div>
+          <p id="sunrise" class="detail-card__value"></p>
+          <p id="sunset" class="detail-card__sub"></p>
+        </div>
+        <div class="detail-card">
+          <div class="detail-card__header">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4 14.9"/></svg>
+            <span>Cloudiness</span>
+          </div>
+          <p id="clouds" class="detail-card__value"></p>
+          <p id="cloudsDesc" class="detail-card__sub"></p>
+        </div>
+        <div class="detail-card">
+          <div class="detail-card__header">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v6l3-3M12 8l-3-3"/><path d="M4.93 4.93l4.24 4.24"/><path d="M20 12h-6l3 3M14 12l3-3"/></svg>
+            <span>Dew Point</span>
+          </div>
+          <p id="dewPoint" class="detail-card__value"></p>
+          <p id="dewPointDesc" class="detail-card__sub"></p>
+        </div>
+      </section>
+
+      <!-- Hourly Forecast -->
+      <section class="forecast-section">
+        <h3 class="section-title">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          Hourly Forecast
+        </h3>
+        <div id="hourlyForecast" class="hourly-forecast"></div>
+      </section>
+
+      <!-- 5-Day Forecast -->
+      <section class="forecast-section">
+        <h3 class="section-title">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+          5-Day Forecast
+        </h3>
+        <div id="dailyForecast" class="daily-forecast"></div>
+      </section>
+
+      <!-- Air Quality -->
+      <section id="aqiSection" class="forecast-section hidden">
+        <h3 class="section-title">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 2h8l4 10H4z"/><path d="M12 12v10"/><path d="M8 22h8"/></svg>
+          Air Quality
+        </h3>
+        <div class="aqi-card">
+          <div class="aqi-card__gauge">
+            <div id="aqiValue" class="aqi-card__value"></div>
+            <div id="aqiLabel" class="aqi-card__label"></div>
+          </div>
+          <div id="aqiDetails" class="aqi-card__details"></div>
+        </div>
+      </section>
+
+      <!-- Weather Map placeholder -->
+      <section class="forecast-section">
+        <h3 class="section-title">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><path d="M8 2v16M16 6v16"/></svg>
+          Weather Summary
+        </h3>
+        <div id="weatherSummary" class="summary-card"></div>
+      </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>Built with ♥ — Data from <a href="https://openweathermap.org" target="_blank" rel="noopener">OpenWeatherMap</a></p>
+    </footer>
+  </div>
+
+  <!-- API key modal -->
+  <div id="apiKeyModal" class="modal hidden">
+    <div class="modal__backdrop"></div>
+    <div class="modal__content">
+      <h2>Welcome to WeatherApp</h2>
+      <p>Enter your free <a href="https://openweathermap.org/appid" target="_blank" rel="noopener">OpenWeatherMap API key</a> to get started.</p>
+      <input id="apiKeyInput" class="search__input" type="text" placeholder="Paste your API key here..." />
+      <button id="saveApiKey" class="btn btn--primary btn--full">Save & Start</button>
+      <p class="modal__hint">Your key is stored locally and never shared.</p>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
