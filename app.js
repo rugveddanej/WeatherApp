@@ -1,31 +1,21 @@
-/* ============================================================
-   WeatherApp — Smart Weather Application Logic
-   ============================================================ */
-
 (() => {
   'use strict';
 
-  // ── CONFIG ──────────────────────────────────────────────────
-  const STORAGE_KEY_API   = 'weatherapp_api_key';
   const STORAGE_KEY_UNIT  = 'weatherapp_unit';
   const STORAGE_KEY_THEME = 'weatherapp_theme';
   const STORAGE_KEY_RECENT = 'weatherapp_recent';
-  const GEO_URL  = 'https://api.openweathermap.org/geo/1.0';
-  const OWM_URL  = 'https://api.openweathermap.org/data/2.5';
-  const OWM3_URL = 'https://api.openweathermap.org/data/3.0';
+  const GEO_URL = 'https://geocoding-api.open-meteo.com/v1/search';
+  const METEO_URL = 'https://api.open-meteo.com/v1/forecast';
+  const AQI_URL = 'https://air-quality-api.open-meteo.com/v1/air-quality';
 
-  // ── STATE ───────────────────────────────────────────────────
-  let apiKey   = localStorage.getItem(STORAGE_KEY_API) || '';
   let unit     = localStorage.getItem(STORAGE_KEY_UNIT) || 'metric';
   let theme    = localStorage.getItem(STORAGE_KEY_THEME) || 'dark';
   let recentSearches = JSON.parse(localStorage.getItem(STORAGE_KEY_RECENT) || '[]');
   let debounceTimer  = null;
   let currentCoords  = null;
 
-  // ── DOM REFS ────────────────────────────────────────────────
   const $ = (sel) => document.querySelector(sel);
-  const $$ = (sel) => document.querySelectorAll(sel);
-
+  
   const dom = {
     searchInput:    $('#searchInput'),
     searchBtn:      $('#searchBtn'),
@@ -73,54 +63,41 @@
     aqiLabel:       $('#aqiLabel'),
     aqiDetails:     $('#aqiDetails'),
     weatherSummary: $('#weatherSummary'),
-    apiKeyModal:    $('#apiKeyModal'),
-    apiKeyInput:    $('#apiKeyInput'),
-    saveApiKey:     $('#saveApiKey'),
     particles:      $('#particles'),
   };
 
-  // ── WEATHER ICONS (Emoji-based for zero dependencies) ──────
-  const weatherIcons = {
-    '01d': '☀️', '01n': '🌙',
-    '02d': '⛅', '02n': '☁️',
-    '03d': '☁️', '03n': '☁️',
-    '04d': '☁️', '04n': '☁️',
-    '09d': '🌧️', '09n': '🌧️',
-    '10d': '🌦️', '10n': '🌧️',
-    '11d': '⛈️', '11n': '⛈️',
-    '13d': '❄️', '13n': '❄️',
-    '50d': '🌫️', '50n': '🌫️',
-  };
+  function getWeatherEmoji(code, isDay = 1) {
+    if (code === 0) return isDay ? '☀️' : '🌙';
+    if ([1, 2].includes(code)) return isDay ? '⛅' : '☁️';
+    if (code === 3) return '☁️';
+    if ([45, 48].includes(code)) return '🌫️';
+    if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return '🌧️';
+    if ([71, 73, 75, 77, 85, 86].includes(code)) return '❄️';
+    if ([95, 96, 99].includes(code)) return '⛈️';
+    return '🌡️';
+  }
 
-  // ── UTILITY ─────────────────────────────────────────────────
+  function getWeatherDesc(code) {
+    const codes = {
+      0: 'Clear sky', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+      45: 'Fog', 48: 'Depositing rime fog', 51: 'Light drizzle', 53: 'Moderate drizzle',
+      55: 'Dense drizzle', 61: 'Slight rain', 63: 'Moderate rain', 65: 'Heavy rain',
+      71: 'Slight snow', 73: 'Moderate snow', 75: 'Heavy snow', 80: 'Slight rain showers',
+      81: 'Moderate rain showers', 82: 'Violent rain showers', 95: 'Thunderstorm'
+    };
+    return codes[code] || 'Unknown conditions';
+  }
+
   function tempUnit() { return unit === 'metric' ? '°C' : '°F'; }
-  function speedUnit() { return unit === 'metric' ? 'm/s' : 'mph'; }
-
-  function formatTemp(val) {
-    return `${Math.round(val)}${tempUnit()}`;
+  function speedUnit() { return unit === 'metric' ? 'km/h' : 'mph'; }
+  function formatTemp(val) { return `${Math.round(val)}${tempUnit()}`; }
+  
+  function formatTime(isoStr) {
+    return new Date(isoStr).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   }
 
-  function formatTime(unix, tz) {
-    const d = new Date((unix + tz) * 1000);
-    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
-  }
-
-  function formatDay(unix, tz) {
-    const d = new Date((unix + tz) * 1000);
-    return d.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
-  }
-
-  function formatDate(unix, tz) {
-    const d = new Date((unix + tz) * 1000);
-    return d.toLocaleDateString('en-US', {
-      weekday: 'long', month: 'long', day: 'numeric',
-      hour: '2-digit', minute: '2-digit', timeZone: 'UTC'
-    });
-  }
-
-  function formatHour(unix, tz) {
-    const d = new Date((unix + tz) * 1000);
-    return d.toLocaleTimeString('en-US', { hour: 'numeric', timeZone: 'UTC' });
+  function formatDay(isoStr) {
+    return new Date(isoStr).toLocaleDateString('en-US', { weekday: 'short' });
   }
 
   function degToCompass(deg) {
@@ -128,61 +105,41 @@
     return dirs[Math.round(deg / 22.5) % 16];
   }
 
-  function getVisibilityDesc(m) {
-    if (m >= 10000) return 'Excellent';
-    if (m >= 5000)  return 'Good';
-    if (m >= 2000)  return 'Moderate';
-    if (m >= 1000)  return 'Poor';
-    return 'Very poor';
+  function getAQILabel(aqi) {
+    if (aqi <= 20) return 'Good';
+    if (aqi <= 40) return 'Fair';
+    if (aqi <= 60) return 'Moderate';
+    if (aqi <= 80) return 'Poor';
+    return 'Very Poor';
+  }
+
+  function getAQIColor(aqi) {
+    if (aqi <= 20) return '#4ade80';
+    if (aqi <= 40) return '#a3e635';
+    if (aqi <= 60) return '#fbbf24';
+    if (aqi <= 80) return '#fb923c';
+    return '#ef4444';
   }
 
   function getUVDesc(uvi) {
-    if (uvi <= 2)  return 'Low';
-    if (uvi <= 5)  return 'Moderate';
-    if (uvi <= 7)  return 'High';
+    if (uvi <= 2) return 'Low';
+    if (uvi <= 5) return 'Moderate';
+    if (uvi <= 7) return 'High';
     if (uvi <= 10) return 'Very High';
     return 'Extreme';
   }
 
   function getUVColor(uvi) {
-    if (uvi <= 2)  return '#4ade80';
-    if (uvi <= 5)  return '#fbbf24';
-    if (uvi <= 7)  return '#fb923c';
+    if (uvi <= 2) return '#4ade80';
+    if (uvi <= 5) return '#fbbf24';
+    if (uvi <= 7) return '#fb923c';
     if (uvi <= 10) return '#ef4444';
     return '#a855f7';
-  }
-
-  function getAQILabel(aqi) {
-    const labels = ['', 'Good', 'Fair', 'Moderate', 'Poor', 'Very Poor'];
-    return labels[aqi] || 'Unknown';
-  }
-
-  function getAQIColor(aqi) {
-    const colors = ['', '#4ade80', '#a3e635', '#fbbf24', '#fb923c', '#ef4444'];
-    return colors[aqi] || '#94a3b8';
-  }
-
-  function getCloudsDesc(pct) {
-    if (pct <= 10) return 'Clear sky';
-    if (pct <= 25) return 'Few clouds';
-    if (pct <= 50) return 'Scattered';
-    if (pct <= 84) return 'Broken clouds';
-    return 'Overcast';
-  }
-
-  function getDewPointDesc(dp) {
-    const val = unit === 'metric' ? dp : (dp - 32) * 5/9;
-    if (val < 10) return 'Dry & comfortable';
-    if (val < 16) return 'Comfortable';
-    if (val < 18) return 'Slightly humid';
-    if (val < 21) return 'Humid';
-    return 'Very humid';
   }
 
   function show(el) { el.classList.remove('hidden'); }
   function hide(el) { el.classList.add('hidden'); }
 
-  // ── PARTICLES ───────────────────────────────────────────────
   function initParticles() {
     const count = window.innerWidth < 640 ? 15 : 30;
     for (let i = 0; i < count; i++) {
@@ -198,14 +155,12 @@
     }
   }
 
-  // ── THEME ───────────────────────────────────────────────────
   function applyTheme(t) {
     theme = t;
     document.documentElement.setAttribute('data-theme', t);
     localStorage.setItem(STORAGE_KEY_THEME, t);
   }
 
-  // ── UNITS ───────────────────────────────────────────────────
   function toggleUnit() {
     unit = unit === 'metric' ? 'imperial' : 'metric';
     localStorage.setItem(STORAGE_KEY_UNIT, unit);
@@ -213,8 +168,8 @@
     if (currentCoords) fetchWeather(currentCoords.lat, currentCoords.lon, currentCoords.name);
   }
 
-  // ── RECENT SEARCHES ────────────────────────────────────────
   function addRecent(name) {
+    if (!name) return;
     recentSearches = recentSearches.filter(s => s.toLowerCase() !== name.toLowerCase());
     recentSearches.unshift(name);
     if (recentSearches.length > 6) recentSearches.pop();
@@ -230,67 +185,77 @@
     ).join('');
   }
 
-  // ── API CALLS ──────────────────────────────────────────────
   async function geocode(query) {
-    const res = await fetch(`${GEO_URL}/direct?q=${encodeURIComponent(query)}&limit=5&appid=${apiKey}`);
+    const res = await fetch(`${GEO_URL}?name=${encodeURIComponent(query)}&count=5&language=en&format=json`);
     if (!res.ok) throw new Error('Geocoding failed');
-    return res.json();
+    const data = await res.json();
+    return data.results || [];
   }
 
   async function fetchWeatherData(lat, lon) {
-    const params = `lat=${lat}&lon=${lon}&appid=${apiKey}&units=${unit}`;
+    const tempUnitParam = unit === 'metric' ? 'celsius' : 'fahrenheit';
+    const windUnitParam = unit === 'metric' ? 'kmh' : 'mph';
+    
+    const weatherParams = new URLSearchParams({
+      latitude: lat, longitude: lon,
+      current: 'temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m',
+      hourly: 'temperature_2m,precipitation_probability,weather_code',
+      daily: 'weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max',
+      temperature_unit: tempUnitParam,
+      wind_speed_unit: windUnitParam,
+      timezone: 'auto'
+    });
 
-    // Use 2.5 forecast (free tier) as primary
-    const [currentRes, forecastRes] = await Promise.all([
-      fetch(`${OWM_URL}/weather?${params}`),
-      fetch(`${OWM_URL}/forecast?${params}`),
+    const aqiParams = new URLSearchParams({
+      latitude: lat, longitude: lon,
+      current: 'european_aqi,pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone',
+      timezone: 'auto'
+    });
+
+    const [weatherRes, aqiRes] = await Promise.all([
+      fetch(`${METEO_URL}?${weatherParams}`),
+      fetch(`${AQI_URL}?${aqiParams}`)
     ]);
 
-    if (!currentRes.ok) {
-      if (currentRes.status === 401) throw new Error('Invalid API key. Please check your key.');
-      throw new Error('Failed to fetch weather data.');
-    }
+    if (!weatherRes.ok) throw new Error('Failed to fetch weather data.');
 
-    const current  = await currentRes.json();
-    const forecast = await forecastRes.json();
+    const weather = await weatherRes.json();
+    const aqi = aqiRes.ok ? await aqiRes.json() : null;
 
-    // Try AQI (free)
-    let aqi = null;
-    try {
-      const aqiRes = await fetch(`${OWM_URL}/air_pollution?${params}`);
-      if (aqiRes.ok) aqi = await aqiRes.json();
-    } catch (_) { /* ignore */ }
-
-    // Try OneCall 3.0 for extra data (UV, hourly, etc.) — falls back gracefully
-    let oneCall = null;
-    try {
-      const ocRes = await fetch(`${OWM3_URL}/onecall?${params}&exclude=minutely`);
-      if (ocRes.ok) oneCall = await ocRes.json();
-    } catch (_) { /* ignore */ }
-
-    // Fallback: try 2.5 onecall
-    if (!oneCall) {
-      try {
-        const ocRes = await fetch(`${OWM_URL}/onecall?${params}&exclude=minutely`);
-        if (ocRes.ok) oneCall = await ocRes.json();
-      } catch (_) { /* ignore */ }
-    }
-
-    return { current, forecast, aqi, oneCall };
+    return { weather, aqi };
   }
 
-  // ── MAIN FETCH ─────────────────────────────────────────────
   async function fetchWeather(lat, lon, name) {
     hide(dom.error);
     hide(dom.weatherContent);
     show(dom.loader);
 
-    currentCoords = { lat, lon, name };
-
     try {
+      let locationName = name;
+      if (!locationName) {
+        try {
+          const reverseGeoRes = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`);
+          if (reverseGeoRes.ok) {
+            const geoData = await reverseGeoRes.json();
+            locationName = geoData.city || geoData.locality || geoData.principalSubdivision || 'Current Location';
+          } else {
+            locationName = 'Current Location';
+          }
+        } catch (err) {
+          locationName = 'Current Location';
+        }
+      }
+
+      currentCoords = { lat, lon, name: locationName };
+
       const data = await fetchWeatherData(lat, lon);
-      renderWeather(data, name);
-      addRecent(name);
+      
+      renderWeather(data, locationName);
+      
+      if (locationName && locationName !== 'Current Location') {
+        addRecent(locationName);
+      }
+      
     } catch (err) {
       showError(err.message);
     } finally {
@@ -305,94 +270,59 @@
     show(dom.error);
   }
 
-  // ── RENDER ─────────────────────────────────────────────────
-  function renderWeather({ current, forecast, aqi, oneCall }, name) {
-    const tz = current.timezone;
+  function renderWeather({ weather, aqi }, name) {
+    const current = weather.current;
+    const daily = weather.daily;
 
-    // City & date
-    dom.cityName.textContent = name || `${current.name}, ${current.sys?.country || ''}`;
-    dom.dateTime.textContent = formatDate(current.dt, tz);
+    dom.cityName.textContent = name || 'Current Location';
+    dom.dateTime.textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-    // Description & icon
-    const w = current.weather[0];
-    dom.weatherDesc.textContent = w.description;
-    dom.weatherIconLarge.textContent = weatherIcons[w.icon] || '🌡️';
+    dom.weatherDesc.textContent = getWeatherDesc(current.weather_code);
+    dom.weatherIconLarge.textContent = getWeatherEmoji(current.weather_code, current.is_day);
 
-    // Temperatures
-    dom.currentTemp.textContent = formatTemp(current.main.temp);
-    dom.highTemp.textContent  = `H: ${formatTemp(current.main.temp_max)}`;
-    dom.lowTemp.textContent   = `L: ${formatTemp(current.main.temp_min)}`;
-    dom.feelsLike.textContent = `Feels like ${formatTemp(current.main.feels_like)}`;
+    dom.currentTemp.textContent = formatTemp(current.temperature_2m);
+    dom.highTemp.textContent  = `H: ${formatTemp(daily.temperature_2m_max[0])}`;
+    dom.lowTemp.textContent   = `L: ${formatTemp(daily.temperature_2m_min[0])}`;
+    dom.feelsLike.textContent = `Feels like ${formatTemp(current.apparent_temperature)}`;
 
-    // Alerts
-    if (oneCall?.alerts?.length) {
-      dom.alertText.textContent = oneCall.alerts[0].event + ' — ' + (oneCall.alerts[0].description || '').slice(0, 120);
-      show(dom.alertBanner);
-    } else {
-      hide(dom.alertBanner);
-    }
+    hide(dom.alertBanner);
 
-    // Detail cards
-    dom.windSpeed.textContent = `${current.wind.speed} ${speedUnit()}`;
-    dom.windDir.textContent   = current.wind.deg != null ? `Direction: ${degToCompass(current.wind.deg)} (${current.wind.deg}°)` : '';
+    dom.windSpeed.textContent = `${current.wind_speed_10m} ${speedUnit()}`;
+    dom.windDir.textContent   = `Direction: ${degToCompass(current.wind_direction_10m)}`;
 
-    dom.humidity.textContent = `${current.main.humidity}%`;
-    dom.humidityBar.querySelector('.detail-card__bar-fill').style.width = `${current.main.humidity}%`;
+    dom.humidity.textContent = `${current.relative_humidity_2m}%`;
+    dom.humidityBar.querySelector('.detail-card__bar-fill').style.width = `${current.relative_humidity_2m}%`;
 
-    dom.pressure.textContent  = `${current.main.pressure} hPa`;
-    dom.pressureTrend.textContent = current.main.pressure > 1013 ? '↑ High pressure' : '↓ Low pressure';
+    dom.pressure.textContent  = `${current.pressure_msl} hPa`;
+    dom.pressureTrend.textContent = current.pressure_msl > 1013 ? '↑ High pressure' : '↓ Low pressure';
 
-    const vis = current.visibility ?? 10000;
-    dom.visibility.textContent     = vis >= 1000 ? `${(vis / 1000).toFixed(1)} km` : `${vis} m`;
-    dom.visibilityDesc.textContent = getVisibilityDesc(vis);
+    dom.visibility.textContent = 'N/A';
+    dom.visibilityDesc.textContent = '';
 
-    // UV (from onecall or estimate)
-    const uvi = oneCall?.current?.uvi ?? estimateUV(current);
+    const uvi = daily.uv_index_max[0] || 0;
     dom.uvIndex.textContent = uvi.toFixed(1);
     dom.uvDesc.textContent  = getUVDesc(uvi);
     dom.uvIndex.style.color = getUVColor(uvi);
 
-    // Sunrise / Sunset
-    dom.sunrise.textContent = `☀ ${formatTime(current.sys.sunrise, tz)}`;
-    dom.sunset.textContent  = `🌙 ${formatTime(current.sys.sunset, tz)}`;
+    dom.sunrise.textContent = `☀ ${formatTime(daily.sunrise[0])}`;
+    dom.sunset.textContent  = `🌙 ${formatTime(daily.sunset[0])}`;
 
-    // Clouds
-    dom.clouds.textContent     = `${current.clouds.all}%`;
-    dom.cloudsDesc.textContent = getCloudsDesc(current.clouds.all);
+    dom.clouds.textContent     = `${current.cloud_cover}%`;
+    dom.cloudsDesc.textContent = current.cloud_cover > 50 ? 'Mostly cloudy' : 'Mostly clear';
 
-    // Dew point
-    const dp = oneCall?.current?.dew_point ?? estimateDewPoint(current.main.temp, current.main.humidity);
+    const dp = estimateDewPoint(current.temperature_2m, current.relative_humidity_2m);
     dom.dewPoint.textContent     = formatTemp(dp);
-    dom.dewPointDesc.textContent = getDewPointDesc(dp);
+    dom.dewPointDesc.textContent = unit === 'metric' ? (dp > 18 ? 'Humid' : 'Comfortable') : (dp > 65 ? 'Humid' : 'Comfortable');
 
-    // Hourly forecast
-    renderHourly(oneCall, forecast, tz);
-
-    // Daily forecast
-    renderDaily(oneCall, forecast, tz);
-
-    // AQI
+    renderHourly(weather.hourly);
+    renderDaily(daily);
     renderAQI(aqi);
-
-    // Weather summary
-    renderSummary(current, forecast, oneCall, aqi);
+    renderSummary(current, daily, weather.hourly, aqi);
 
     show(dom.weatherContent);
   }
 
-  function estimateUV(current) {
-    const now = current.dt;
-    const sunrise = current.sys.sunrise;
-    const sunset  = current.sys.sunset;
-    if (now < sunrise || now > sunset) return 0;
-    const dayProgress = (now - sunrise) / (sunset - sunrise);
-    const peak = Math.sin(dayProgress * Math.PI);
-    const cloudFactor = 1 - (current.clouds.all / 100) * 0.7;
-    return Math.max(0, peak * 10 * cloudFactor);
-  }
-
   function estimateDewPoint(temp, humidity) {
-    // Magnus formula approximation
     const a = 17.27, b = 237.7;
     const t = unit === 'metric' ? temp : (temp - 32) * 5/9;
     const alpha = (a * t) / (b + t) + Math.log(humidity / 100);
@@ -400,105 +330,81 @@
     return unit === 'metric' ? dp : dp * 9/5 + 32;
   }
 
-  // ── HOURLY FORECAST ─────────────────────────────────────────
-  function renderHourly(oneCall, forecast, tz) {
-    let hours = [];
+  function renderHourly(hourly) {
+    const nowIdx = hourly.time.findIndex(t => new Date(t) >= new Date());
+    const startIndex = nowIdx > -1 ? nowIdx : 0;
+    const hours = [];
 
-    if (oneCall?.hourly) {
-      hours = oneCall.hourly.slice(0, 24).map(h => ({
-        dt: h.dt, temp: h.temp, icon: h.weather[0].icon, pop: h.pop || 0
-      }));
-    } else {
-      hours = forecast.list.slice(0, 8).map(h => ({
-        dt: h.dt, temp: h.main.temp, icon: h.weather[0].icon, pop: h.pop || 0
-      }));
+    for(let i = 0; i < 24; i++) {
+      const idx = startIndex + i;
+      if(idx >= hourly.time.length) break;
+      hours.push({
+        time: hourly.time[idx],
+        temp: hourly.temperature_2m[idx],
+        code: hourly.weather_code[idx],
+        pop: hourly.precipitation_probability[idx]
+      });
     }
 
     dom.hourlyForecast.innerHTML = hours.map((h, i) => `
       <div class="hourly-card${i === 0 ? ' now' : ''}">
-        <span class="hourly-card__time">${i === 0 ? 'Now' : formatHour(h.dt, tz)}</span>
-        <span class="hourly-card__icon">${weatherIcons[h.icon] || '🌡️'}</span>
+        <span class="hourly-card__time">${i === 0 ? 'Now' : new Date(h.time).getHours() + ':00'}</span>
+        <span class="hourly-card__icon">${getWeatherEmoji(h.code)}</span>
         <span class="hourly-card__temp">${formatTemp(h.temp)}</span>
-        ${h.pop > 0.05 ? `<span class="hourly-card__pop">💧 ${Math.round(h.pop * 100)}%</span>` : ''}
+        ${h.pop > 5 ? `<span class="hourly-card__pop">💧 ${h.pop}%</span>` : ''}
       </div>
     `).join('');
   }
 
-  // ── DAILY FORECAST ──────────────────────────────────────────
-  function renderDaily(oneCall, forecast, tz) {
-    let days = [];
-
-    if (oneCall?.daily) {
-      days = oneCall.daily.slice(0, 6).map(d => ({
-        dt: d.dt, high: d.temp.max, low: d.temp.min,
-        icon: d.weather[0].icon, pop: d.pop || 0
-      }));
-    } else {
-      // Group 3-hour forecast by day
-      const grouped = {};
-      forecast.list.forEach(item => {
-        const day = new Date((item.dt + tz) * 1000).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
-        if (!grouped[day]) grouped[day] = { temps: [], icons: [], pops: [], dt: item.dt };
-        grouped[day].temps.push(item.main.temp);
-        grouped[day].icons.push(item.weather[0].icon);
-        grouped[day].pops.push(item.pop || 0);
-      });
-      days = Object.entries(grouped).slice(0, 5).map(([, v]) => ({
-        dt: v.dt,
-        high: Math.max(...v.temps),
-        low:  Math.min(...v.temps),
-        icon: v.icons[Math.floor(v.icons.length / 2)],
-        pop:  Math.max(...v.pops)
-      }));
-    }
-
-    const allTemps = days.flatMap(d => [d.high, d.low]);
-    const minT = Math.min(...allTemps);
-    const maxT = Math.max(...allTemps);
+  function renderDaily(daily) {
+    const minT = Math.min(...daily.temperature_2m_min.slice(0, 5));
+    const maxT = Math.max(...daily.temperature_2m_max.slice(0, 5));
     const range = maxT - minT || 1;
 
-    dom.dailyForecast.innerHTML = days.map((d, i) => {
-      const left  = ((d.low - minT) / range) * 100;
-      const width = ((d.high - d.low) / range) * 100;
-      return `
+    let html = '';
+    for(let i = 0; i < 5; i++) {
+      const low = daily.temperature_2m_min[i];
+      const high = daily.temperature_2m_max[i];
+      const left  = ((low - minT) / range) * 100;
+      const width = ((high - low) / range) * 100;
+
+      html += `
         <div class="daily-card" style="animation-delay:${i * 0.05}s">
-          <span class="daily-card__day">${i === 0 ? 'Today' : formatDay(d.dt, tz)}</span>
-          <span class="daily-card__icon">${weatherIcons[d.icon] || '🌡️'}</span>
+          <span class="daily-card__day">${i === 0 ? 'Today' : formatDay(daily.time[i])}</span>
+          <span class="daily-card__icon">${getWeatherEmoji(daily.weather_code[i])}</span>
           <div class="daily-card__bar-wrapper">
             <div class="daily-card__bar-fill" style="left:${left}%;width:${Math.max(width, 8)}%"></div>
           </div>
           <div class="daily-card__temps">
-            <span class="daily-card__low">${formatTemp(d.low)}</span>
-            <span class="daily-card__high">${formatTemp(d.high)}</span>
-            ${d.pop > 0.1 ? `<span class="daily-card__pop">💧${Math.round(d.pop * 100)}%</span>` : ''}
+            <span class="daily-card__low">${formatTemp(low)}</span>
+            <span class="daily-card__high">${formatTemp(high)}</span>
           </div>
         </div>
       `;
-    }).join('');
+    }
+    dom.dailyForecast.innerHTML = html;
   }
 
-  // ── AQI ─────────────────────────────────────────────────────
-  function renderAQI(aqi) {
-    if (!aqi?.list?.length) { hide(dom.aqiSection); return; }
+  function renderAQI(aqiData) {
+    if (!aqiData || !aqiData.current) { hide(dom.aqiSection); return; }
     show(dom.aqiSection);
 
-    const data = aqi.list[0];
-    const idx  = data.main.aqi;
-    const color = getAQIColor(idx);
+    const c = aqiData.current;
+    const aqiVal = c.european_aqi || 0;
+    const color = getAQIColor(aqiVal);
 
-    dom.aqiValue.textContent = idx;
+    dom.aqiValue.textContent = aqiVal;
     dom.aqiValue.style.color = color;
-    dom.aqiLabel.textContent = getAQILabel(idx);
+    dom.aqiLabel.textContent = getAQILabel(aqiVal);
     dom.aqiLabel.style.color = color;
 
-    const components = data.components;
     const items = [
-      { label: 'PM2.5', value: components.pm2_5?.toFixed(1) || '—', unit: 'μg/m³' },
-      { label: 'PM10',  value: components.pm10?.toFixed(1) || '—', unit: 'μg/m³' },
-      { label: 'NO₂',   value: components.no2?.toFixed(1) || '—', unit: 'μg/m³' },
-      { label: 'O₃',    value: components.o3?.toFixed(1) || '—', unit: 'μg/m³' },
-      { label: 'SO₂',   value: components.so2?.toFixed(1) || '—', unit: 'μg/m³' },
-      { label: 'CO',    value: components.co?.toFixed(0) || '—', unit: 'μg/m³' },
+      { label: 'PM2.5', value: c.pm2_5 || '—' },
+      { label: 'PM10',  value: c.pm10 || '—' },
+      { label: 'NO₂',   value: c.nitrogen_dioxide || '—' },
+      { label: 'O₃',    value: c.ozone || '—' },
+      { label: 'SO₂',   value: c.sulphur_dioxide || '—' },
+      { label: 'CO',    value: c.carbon_monoxide || '—' },
     ];
 
     dom.aqiDetails.innerHTML = items.map(i => `
@@ -509,67 +415,34 @@
     `).join('');
   }
 
-  // ── WEATHER SUMMARY ─────────────────────────────────────────
-  function renderSummary(current, forecast, oneCall, aqi) {
-    const w = current.weather[0];
-    const temp = Math.round(current.main.temp);
-    const feels = Math.round(current.main.feels_like);
-    const humidity = current.main.humidity;
-    const wind = current.wind.speed;
-
-    let summary = `Currently <strong>${w.description}</strong> with a temperature of <strong>${formatTemp(current.main.temp)}</strong>`;
-    summary += ` (feels like ${formatTemp(current.main.feels_like)}).`;
-
-    if (Math.abs(temp - feels) > 3) {
-      summary += unit === 'metric'
-        ? ` The wind chill and humidity make it feel ${feels < temp ? 'colder' : 'warmer'} than actual.`
-        : ` The wind chill and humidity make it feel ${feels < temp ? 'colder' : 'warmer'} than actual.`;
-    }
-
-    summary += ` Humidity is at <strong>${humidity}%</strong>`;
-    summary += humidity > 70 ? ' — quite muggy.' : humidity < 30 ? ' — very dry.' : '.';
-
-    summary += ` Wind is blowing at <strong>${wind} ${speedUnit()}</strong>`;
-    summary += wind > 10 ? ' — breezy conditions.' : '.';
-
-    // Forecast outlook
-    if (forecast.list.length > 8) {
-      const tomorrow = forecast.list.slice(8, 16);
-      const tomorrowTemps = tomorrow.map(h => h.main.temp);
-      const avgTomorrow = tomorrowTemps.reduce((a, b) => a + b, 0) / tomorrowTemps.length;
-      const diff = avgTomorrow - current.main.temp;
-      if (Math.abs(diff) > 2) {
-        summary += ` Tomorrow will be <strong>${diff > 0 ? 'warmer' : 'cooler'}</strong> with an average around ${formatTemp(avgTomorrow)}.`;
-      } else {
-        summary += ' Tomorrow looks similar to today.';
+  function renderSummary(current, daily, hourly, aqi) {
+    let summary = `Currently <strong>${getWeatherDesc(current.weather_code).toLowerCase()}</strong> with a temperature of <strong>${formatTemp(current.temperature_2m)}</strong>. `;
+    
+    summary += `Wind is blowing at <strong>${current.wind_speed_10m} ${speedUnit()}</strong>. `;
+    
+    if (daily.temperature_2m_max[1]) {
+      const tomorrowDiff = daily.temperature_2m_max[1] - daily.temperature_2m_max[0];
+      if (Math.abs(tomorrowDiff) > 2) {
+         summary += `Tomorrow will be <strong>${tomorrowDiff > 0 ? 'warmer' : 'cooler'}</strong>. `;
       }
     }
 
-    // Rain check
-    const rainHours = forecast.list.slice(0, 8).filter(h => h.pop > 0.3);
-    if (rainHours.length > 0) {
-      summary += ` <strong>🌧️ Rain is expected</strong> in the next few hours — don't forget an umbrella!`;
-    }
-
-    if (aqi?.list?.length) {
-      const aqiLevel = getAQILabel(aqi.list[0].main.aqi);
-      summary += ` Air quality is <strong>${aqiLevel.toLowerCase()}</strong>.`;
+    if (aqi && aqi.current) {
+      summary += `Air quality is currently <strong>${getAQILabel(aqi.current.european_aqi).toLowerCase()}</strong>.`;
     }
 
     dom.weatherSummary.innerHTML = summary;
   }
 
-  // ── SEARCH ──────────────────────────────────────────────────
   async function handleSearch(query) {
     if (!query.trim()) return;
     hide(dom.suggestions);
-
     try {
       const results = await geocode(query);
       if (!results.length) { showError(`No results found for "${query}".`); return; }
       const r = results[0];
-      const name = `${r.name}${r.state ? ', ' + r.state : ''}, ${r.country}`;
-      fetchWeather(r.lat, r.lon, name);
+      const name = `${r.name}${r.admin1 ? ', ' + r.admin1 : ''}, ${r.country}`;
+      fetchWeather(r.latitude, r.longitude, name);
     } catch (err) {
       showError(err.message);
     }
@@ -577,16 +450,14 @@
 
   async function handleAutocomplete(query) {
     if (query.length < 2) { hide(dom.suggestions); return; }
-
     try {
       const results = await geocode(query);
       if (!results.length) { hide(dom.suggestions); return; }
-
       dom.suggestions.innerHTML = results.map(r => {
-        const name = `${r.name}${r.state ? ', ' + r.state : ''}, ${r.country}`;
-        return `<div class="search__suggestion" data-lat="${r.lat}" data-lon="${r.lon}" data-name="${name}">
+        const name = `${r.name}${r.admin1 ? ', ' + r.admin1 : ''}, ${r.country}`;
+        return `<div class="search__suggestion" data-lat="${r.latitude}" data-lon="${r.longitude}" data-name="${name}">
           <span>${r.name}</span>
-          <span class="search__suggestion-country">${r.state ? r.state + ', ' : ''}${r.country}</span>
+          <span class="search__suggestion-country">${r.admin1 ? r.admin1 + ', ' : ''}${r.country}</span>
         </div>`;
       }).join('');
       show(dom.suggestions);
@@ -595,42 +466,22 @@
     }
   }
 
-  // ── GEOLOCATION ────────────────────────────────────────────
   function handleGeoLocation() {
     if (!navigator.geolocation) { showError('Geolocation is not supported by your browser.'); return; }
     show(dom.loader);
     navigator.geolocation.getCurrentPosition(
-      pos => fetchWeather(pos.coords.latitude, pos.coords.longitude, ''),
-      ()  => { hide(dom.loader); showError('Unable to retrieve your location. Please allow location access.'); }
+      pos => fetchWeather(pos.coords.latitude, pos.coords.longitude, null),
+      ()  => { hide(dom.loader); showError('Unable to retrieve location.'); }
     );
   }
 
-  // ── API KEY MODAL ──────────────────────────────────────────
-  function checkApiKey() {
-    if (!apiKey) {
-      show(dom.apiKeyModal);
-    } else {
-      hide(dom.apiKeyModal);
-      // Auto-load weather on start
-      if (recentSearches.length) {
-        handleSearch(recentSearches[0]);
-      }
-    }
-  }
-
-  // ── EVENT LISTENERS ────────────────────────────────────────
   function bindEvents() {
-    // Search
     dom.searchBtn.addEventListener('click', () => handleSearch(dom.searchInput.value));
-    dom.searchInput.addEventListener('keydown', e => {
-      if (e.key === 'Enter') handleSearch(dom.searchInput.value);
-    });
+    dom.searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') handleSearch(dom.searchInput.value); });
     dom.searchInput.addEventListener('input', () => {
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => handleAutocomplete(dom.searchInput.value), 350);
     });
-
-    // Suggestions
     dom.suggestions.addEventListener('click', e => {
       const item = e.target.closest('.search__suggestion');
       if (!item) return;
@@ -638,69 +489,43 @@
       hide(dom.suggestions);
       fetchWeather(parseFloat(item.dataset.lat), parseFloat(item.dataset.lon), item.dataset.name);
     });
-
-    // Close suggestions on outside click
     document.addEventListener('click', e => {
-      if (!dom.suggestions.contains(e.target) && e.target !== dom.searchInput) {
-        hide(dom.suggestions);
-      }
+      if (!dom.suggestions.contains(e.target) && e.target !== dom.searchInput) hide(dom.suggestions);
     });
-
-    // Recent searches
     dom.recentList.addEventListener('click', e => {
       const btn = e.target.closest('.search__recent-item');
       if (!btn) return;
       dom.searchInput.value = btn.dataset.city;
       handleSearch(btn.dataset.city);
     });
-
-    // Geo
     dom.geoBtn.addEventListener('click', handleGeoLocation);
-
-    // Unit toggle
     dom.unitToggle.addEventListener('click', toggleUnit);
-
-    // Theme toggle
-    dom.themeToggle.addEventListener('click', () => {
-      applyTheme(theme === 'dark' ? 'light' : 'dark');
-    });
-
-    // Retry
+    dom.themeToggle.addEventListener('click', () => applyTheme(theme === 'dark' ? 'light' : 'dark'));
     dom.retryBtn.addEventListener('click', () => {
       if (currentCoords) fetchWeather(currentCoords.lat, currentCoords.lon, currentCoords.name);
     });
-
-    // API key modal
-    dom.saveApiKey.addEventListener('click', () => {
-      const key = dom.apiKeyInput.value.trim();
-      if (!key) return;
-      apiKey = key;
-      localStorage.setItem(STORAGE_KEY_API, key);
-      hide(dom.apiKeyModal);
-      // Try geolocation on first use
-      handleGeoLocation();
-    });
-
-    // Focus search on '/' key
     document.addEventListener('keydown', e => {
-      if (e.key === '/' && document.activeElement !== dom.searchInput && document.activeElement !== dom.apiKeyInput) {
+      if (e.key === '/' && document.activeElement !== dom.searchInput) {
         e.preventDefault();
         dom.searchInput.focus();
       }
     });
   }
 
-  // ── INIT ────────────────────────────────────────────────────
   function init() {
     applyTheme(theme);
     dom.unitToggle.textContent = unit === 'metric' ? '°C' : '°F';
     initParticles();
     renderRecent();
     bindEvents();
-    checkApiKey();
+    
+    if (recentSearches.length) {
+      handleSearch(recentSearches[0]);
+    } else {
+      handleGeoLocation();
+    }
   }
 
-  // Boot
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
