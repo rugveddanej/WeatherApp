@@ -230,32 +230,12 @@
     hide(dom.weatherContent);
     show(dom.loader);
 
+    currentCoords = { lat, lon, name };
+
     try {
-      let locationName = name;
-      if (!locationName) {
-        try {
-          const reverseGeoRes = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`);
-          if (reverseGeoRes.ok) {
-            const geoData = await reverseGeoRes.json();
-            locationName = geoData.city || geoData.locality || geoData.principalSubdivision || 'Current Location';
-          } else {
-            locationName = 'Current Location';
-          }
-        } catch (err) {
-          locationName = 'Current Location';
-        }
-      }
-
-      currentCoords = { lat, lon, name: locationName };
-
       const data = await fetchWeatherData(lat, lon);
-      
-      renderWeather(data, locationName);
-      
-      if (locationName && locationName !== 'Current Location') {
-        addRecent(locationName);
-      }
-      
+      renderWeather(data, name);
+      if (name) addRecent(name);
     } catch (err) {
       showError(err.message);
     } finally {
